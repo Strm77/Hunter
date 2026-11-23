@@ -30,7 +30,8 @@ O app começa vazio: não há dados de exemplo.
 Todo o app (páginas e API) fica atrás de um **código de acesso único** definido na variável de ambiente `HUNTER_ACCESS_CODE`:
 
 - o middleware (`src/middleware.ts`) bloqueia tudo sem uma sessão válida e redireciona para `/entrar`; a API responde 401;
-- ao digitar o código certo, o navegador recebe um cookie `httpOnly` (30 dias) com um HMAC derivado do código, nunca o código em si;
+- ao digitar o código certo (comparado no servidor, em `/api/entrar`), o navegador recebe um cookie `httpOnly` e `sameSite=lax` no formato `<expiração>.<HMAC-SHA256(código, expiração)>`. O código nunca vai para o cookie;
+- o middleware confere a assinatura e a expiração (30 dias) **no servidor** a cada requisição: um cookie alterado, expirado ou assinado com outro código é recusado;
 - **sem `HUNTER_ACCESS_CODE` configurado (ou com menos de 8 caracteres), o app fica fechado para todos**;
 - trocar o código invalida todas as sessões; o botão “Sair” encerra a sessão no navegador.
 
