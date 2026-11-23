@@ -4,8 +4,10 @@ App web para organizar a busca de emprego da Carol: candidaturas e retornos, his
 
 > ## ⚠️ V1 é um protótipo local
 >
-> - **Os dados ficam em um único arquivo** (`data/hunter.json`) na máquina/instalação onde o app roda. **Não há compartilhamento de dados entre Brunno e Carol em dispositivos diferentes**: o que for cadastrado em um computador não aparece em outro.
-> - A V1 **não é um aplicativo compartilhado completo** e **não está pronta para ser publicada com dados pessoais reais**. Antes de publicar, são necessários: (1) a trava de acesso configurada com um código forte e (2) armazenamento compartilhado hospedado (banco de dados), já que o disco da Vercel é temporário e não guarda o arquivo JSON entre execuções.
+> - **Os dados ficam num arquivo no servidor onde o app roda** (`data/hunter.json`), não no celular nem no navegador de quem acessa.
+> - **Quem acessa a mesma instalação vê os mesmos dados**: por exemplo, Brunno pelo celular e Carol pelo computador, ambos abrindo o mesmo endereço. **Instalações separadas não compartilham informação**: duas cópias do app rodando em lugares diferentes têm arquivos diferentes.
+> - **Esse arquivo não persiste num deploy da Vercel**: o disco lá é temporário e os dados se perdem entre execuções.
+> - Por isso a V1 **não está pronta para ser publicada com dados pessoais reais**. Para a versão publicável faltam: (1) **ligar um banco de dados hospedado** no lugar do arquivo JSON (provedor ainda não escolhido) e (2) a trava de acesso configurada com um código forte.
 > - O acesso deve ficar restrito a **Brunno e Carol**.
 
 ## O que tem na V1
@@ -74,15 +76,15 @@ src/
 
 ## Deploy (depois, não agora)
 
-O projeto é um Next.js padrão e roda na Vercel sem configuração extra **para o código**, mas a persistência em arquivo não funciona lá. Antes de publicar:
+O projeto é um Next.js padrão e roda na Vercel sem configuração extra **para o código**, mas o arquivo JSON não persiste lá. **Requisitos para a versão publicável:**
 
-1. trocar `src/lib/db.ts` por um armazenamento hospedado (por exemplo, um Postgres gratuito), mantendo a mesma interface;
+1. **ligar um banco de dados hospedado** no lugar de `src/lib/db.ts`, mantendo a mesma interface (pendente: o provedor ainda não foi escolhido nem cadastrado);
 2. configurar `HUNTER_ACCESS_CODE` nas variáveis de ambiente do projeto na Vercel;
 3. só então cadastrar dados reais.
 
 ## Fases futuras (fora da V1)
 
-- Armazenamento compartilhado hospedado, para Brunno e Carol usarem os mesmos dados em dispositivos diferentes.
+- Banco de dados hospedado no lugar do arquivo JSON (requisito para publicar; provedor a definir).
 - Login multiusuário (contas individuais no lugar do código compartilhado).
 - Busca automática de vagas.
 - Candidatura automática.

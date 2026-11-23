@@ -19,7 +19,7 @@ export default function Navegacao() {
         <Link href="/" className="text-lg font-bold tracking-tight text-marca">
           Hunter
         </Link>
-        <nav className="flex flex-wrap gap-1 text-sm">
+        <nav className="order-last flex w-full flex-wrap gap-1 text-sm sm:order-none sm:w-auto">
           {LINKS.map((l) => {
             const ativo = l.href === "/" ? atual === "/" : atual.startsWith(l.href);
             return (
