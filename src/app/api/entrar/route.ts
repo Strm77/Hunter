@@ -1,5 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE_SESSAO, DURACAO_SESSAO_S, codigoConfigurado, destinoSeguro, iguais, tokenDaSessao } from "@/lib/sessao";
+import {
+  COOKIE_SESSAO,
+  DURACAO_SESSAO_S,
+  codigoConfigurado,
+  criarSessao,
+  destinoSeguro,
+  iguais,
+  resumoDoCodigo,
+} from "@/lib/sessao";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +23,7 @@ export async function POST(req: NextRequest) {
 
   if (!codigo) return redirecionar(req, "/entrar?erro=config");
 
-  const [esperado, recebido] = await Promise.all([tokenDaSessao(codigo), tokenDaSessao(tentativa)]);
+  const [esperado, recebido] = await Promise.all([resumoDoCodigo(codigo), resumoDoCodigo(tentativa)]);
   if (!iguais(esperado, recebido)) {
     // Atraso fixo para desencorajar tentativas em sequência.
     await new Promise((r) => setTimeout(r, 1000));
@@ -24,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   const res = redirecionar(req, proximo);
-  res.cookies.set(COOKIE_SESSAO, esperado, {
+  res.cookies.set(COOKIE_SESSAO, await criarSessao(codigo), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

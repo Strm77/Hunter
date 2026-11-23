@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { COOKIE_SESSAO, codigoConfigurado, iguais, tokenDaSessao } from "@/lib/sessao";
+import { COOKIE_SESSAO, codigoConfigurado, sessaoValida } from "@/lib/sessao";
 
 const PUBLICAS = ["/entrar", "/api/entrar", "/api/sair"];
 
@@ -10,7 +10,7 @@ export async function middleware(req: NextRequest) {
   const codigo = codigoConfigurado();
   const cookie = req.cookies.get(COOKIE_SESSAO)?.value ?? "";
   // Sem código configurado, o app fica fechado para todos (falha fechada).
-  if (codigo && cookie && iguais(cookie, await tokenDaSessao(codigo))) return NextResponse.next();
+  if (codigo && cookie && (await sessaoValida(codigo, cookie))) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ erro: "Acesso não autorizado." }, { status: 401 });
