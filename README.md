@@ -2,13 +2,12 @@
 
 App web para organizar a busca de emprego da Carol: candidaturas e retornos, histórico de vagas com links do LinkedIn, perfil profissional (currículo-base) e versões do currículo adaptadas por vaga.
 
-> ## ⚠️ V1 é um protótipo local
+> ## Onde ficam os dados
 >
-> - **Os dados ficam num arquivo no servidor onde o app roda** (`data/hunter.json`), não no celular nem no navegador de quem acessa.
-> - **Quem acessa a mesma instalação vê os mesmos dados**: por exemplo, Brunno pelo celular e Carol pelo computador, ambos abrindo o mesmo endereço. **Instalações separadas não compartilham informação**: duas cópias do app rodando em lugares diferentes têm arquivos diferentes.
-> - **Esse arquivo não persiste num deploy da Vercel**: o disco lá é temporário e os dados se perdem entre execuções.
-> - Por isso a V1 **não está pronta para ser publicada com dados pessoais reais**. Para a versão publicável faltam: (1) **ligar um banco de dados hospedado** no lugar do arquivo JSON (provedor ainda não escolhido) e (2) a trava de acesso configurada com um código forte.
-> - O acesso deve ficar restrito a **Brunno e Carol**.
+> - **Publicado (Vercel):** os dados ficam num **banco de dados hospedado** (projeto Supabase `hunter`, plano gratuito). Quem entra no endereço publicado com o código de acesso vê os mesmos dados, em qualquer aparelho: Brunno pelo celular e Carol pelo computador, por exemplo.
+> - **Rodando no próprio computador sem as variáveis do banco:** os dados ficam num arquivo no servidor onde o app roda (`data/hunter.json`). Instalações separadas não compartilham informação, e esse arquivo não persiste na Vercel.
+> - O acesso é restrito a quem tem o código (**Brunno e Carol**). O código fica só nas variáveis de ambiente, nunca no repositório.
+> - Plano gratuito do Supabase: projetos sem uso por cerca de uma semana são pausados. Se o app mostrar erro de banco depois de muito tempo parado, reative o projeto no painel do Supabase.
 
 ## O que tem na V1
 
@@ -58,8 +57,14 @@ Para rodar em modo produção local: `npm run build && npm start`.
 
 ### Dados
 
-- Arquivo: `data/hunter.json` (ou a pasta definida em `HUNTER_DATA_DIR`). A pasta `data/` está no `.gitignore`.
-- Backup: copie esse arquivo. Para começar do zero, apague-o.
+- **Com banco hospedado:** defina `HUNTER_SUPABASE_URL`, `HUNTER_SUPABASE_KEY` e `HUNTER_DB_TOKEN` (veja `.env.example`). Tudo fica num único documento JSON no banco, com número de versão: se duas pessoas salvarem ao mesmo tempo, o servidor relê e aplica de novo, sem apagar a alteração da outra.
+- **Sem banco:** `data/hunter.json` (ou a pasta de `HUNTER_DATA_DIR`). A pasta `data/` está no `.gitignore`. Backup: copie o arquivo.
+
+### Banco de dados (Supabase)
+
+O esquema está em `supabase/migrations/`. As tabelas ficam no schema `hunter_privado`, que a API pública não expõe. O app acessa só por duas funções, `hunter_ler` e `hunter_gravar`, que recusam qualquer chamada sem o `HUNTER_DB_TOKEN`; o banco guarda apenas o SHA-256 desse token. Por isso a chave publicável do Supabase, sozinha, não lê nem grava nada.
+
+Para trocar o token: gere um novo, atualize o hash em `hunter_privado.acesso` e a variável `HUNTER_DB_TOKEN` na Vercel, e publique de novo.
 
 ## Estrutura
 
@@ -74,17 +79,18 @@ src/
   app/vagas, perfil, curriculos, entrar   demais telas
 ```
 
-## Deploy (depois, não agora)
+## Deploy na Vercel
 
-O projeto é um Next.js padrão e roda na Vercel sem configuração extra **para o código**, mas o arquivo JSON não persiste lá. **Requisitos para a versão publicável:**
+O app está publicado no projeto `hunter` da Vercel. Variáveis de ambiente configuradas lá (produção):
 
-1. **ligar um banco de dados hospedado** no lugar de `src/lib/db.ts`, mantendo a mesma interface (pendente: o provedor ainda não foi escolhido nem cadastrado);
-2. configurar `HUNTER_ACCESS_CODE` nas variáveis de ambiente do projeto na Vercel;
-3. só então cadastrar dados reais.
+- `HUNTER_ACCESS_CODE`: código de acesso;
+- `HUNTER_SUPABASE_URL` e `HUNTER_SUPABASE_KEY`: endereço e chave publicável do projeto Supabase `hunter`;
+- `HUNTER_DB_TOKEN`: token secreto do servidor para o banco.
+
+Para trocar o código de acesso, mude `HUNTER_ACCESS_CODE` na Vercel e publique de novo; isso também encerra todas as sessões abertas.
 
 ## Fases futuras (fora da V1)
 
-- Banco de dados hospedado no lugar do arquivo JSON (requisito para publicar; provedor a definir).
 - Login multiusuário (contas individuais no lugar do código compartilhado).
 - Busca automática de vagas.
 - Candidatura automática.

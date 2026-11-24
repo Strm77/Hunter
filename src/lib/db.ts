@@ -16,9 +16,21 @@ import {
 } from "./types";
 
 /**
- * Persistência local da V1: um único arquivo JSON.
- * Pasta configurável por HUNTER_DATA_DIR (padrão: ./data, fora do git).
+ * Persistência. Dois modos, escolhidos pelas variáveis de ambiente:
+ *
+ * - Banco hospedado (Supabase): quando HUNTER_SUPABASE_URL, HUNTER_SUPABASE_KEY e HUNTER_DB_TOKEN
+ *   estão definidas. Os dados ficam num único documento JSON no banco, acessado só pelas funções
+ *   hunter_ler/hunter_gravar (veja supabase/migrations), que exigem o token secreto do servidor.
+ *   Cada gravação confere a versão do documento, para que duas pessoas salvando ao mesmo tempo
+ *   não apaguem a alteração uma da outra.
+ * - Arquivo local: sem essas variáveis, usa data/hunter.json (pasta configurável por HUNTER_DATA_DIR).
+ *   Serve para rodar no próprio computador; não persiste num deploy da Vercel.
  */
+const SUPABASE_URL = process.env.HUNTER_SUPABASE_URL?.replace(/\/+$/, "");
+const SUPABASE_KEY = process.env.HUNTER_SUPABASE_KEY;
+const DB_TOKEN = process.env.HUNTER_DB_TOKEN;
+export const usaBancoHospedado = Boolean(SUPABASE_URL && SUPABASE_KEY && DB_TOKEN);
+
 const PASTA = process.env.HUNTER_DATA_DIR || path.join(process.cwd(), "data");
 const ARQUIVO = path.join(PASTA, "hunter.json");
 
@@ -26,40 +38,78 @@ function bancoVazio(): BancoDeDados {
   return { versao: 1, perfil: perfilVazio(), candidaturas: [], vagas: [], curriculos: [] };
 }
 
-// Fila simples para serializar escritas dentro do mesmo processo.
-let fila: Promise<unknown> = Promise.resolve();
+function normalizar(dados: Partial<BancoDeDados> | null | undefined): BancoDeDados {
+  if (!dados) return bancoVazio();
+  return {
+    versao: 1,
+    perfil: sanitizarPerfil(dados.perfil ?? perfilVazio()),
+    candidaturas: Array.isArray(dados.candidaturas) ? dados.candidaturas : [],
+    vagas: Array.isArray(dados.vagas) ? dados.vagas : [],
+    curriculos: Array.isArray(dados.curriculos) ? dados.curriculos : [],
+  };
+}
 
-export async function lerBanco(): Promise<BancoDeDados> {
+// ----- Banco hospedado -----
+
+async function rpc<T>(funcao: string, corpo: Record<string, unknown>): Promise<T> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${funcao}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_KEY!, "Content-Type": "application/json" },
+    body: JSON.stringify({ p_token: DB_TOKEN, ...corpo }),
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`Falha ao acessar o banco de dados (${r.status}).`);
+  return (await r.json()) as T;
+}
+
+async function lerRemoto(): Promise<{ dados: BancoDeDados; versao: number }> {
+  const r = await rpc<{ dados: Partial<BancoDeDados> | null; versao: number }>("hunter_ler", {});
+  return { dados: normalizar(r.dados), versao: Number(r.versao) || 0 };
+}
+
+// ----- Arquivo local -----
+
+async function lerArquivo(): Promise<BancoDeDados> {
   try {
-    const bruto = await fs.readFile(ARQUIVO, "utf8");
-    const dados = JSON.parse(bruto) as Partial<BancoDeDados>;
-    const vazio = bancoVazio();
-    return {
-      versao: 1,
-      perfil: sanitizarPerfil(dados.perfil ?? vazio.perfil),
-      candidaturas: Array.isArray(dados.candidaturas) ? dados.candidaturas : [],
-      vagas: Array.isArray(dados.vagas) ? dados.vagas : [],
-      curriculos: Array.isArray(dados.curriculos) ? dados.curriculos : [],
-    };
+    return normalizar(JSON.parse(await fs.readFile(ARQUIVO, "utf8")));
   } catch (erro) {
     if ((erro as NodeJS.ErrnoException).code === "ENOENT") return bancoVazio();
     throw erro;
   }
 }
 
-async function gravarBanco(dados: BancoDeDados) {
+async function gravarArquivo(dados: BancoDeDados) {
   await fs.mkdir(PASTA, { recursive: true });
   const temp = `${ARQUIVO}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(temp, JSON.stringify(dados, null, 2), "utf8");
   await fs.rename(temp, ARQUIVO);
 }
 
+// ----- Interface usada pelas rotas -----
+
+export async function lerBanco(): Promise<BancoDeDados> {
+  return usaBancoHospedado ? (await lerRemoto()).dados : lerArquivo();
+}
+
+// Fila simples para serializar escritas dentro do mesmo processo.
+let fila: Promise<unknown> = Promise.resolve();
+
 export function alterarBanco<T>(fn: (dados: BancoDeDados) => T | Promise<T>): Promise<T> {
   const tarefa = fila.then(async () => {
-    const dados = await lerBanco();
-    const resultado = await fn(dados);
-    await gravarBanco(dados);
-    return resultado;
+    if (!usaBancoHospedado) {
+      const dados = await lerArquivo();
+      const resultado = await fn(dados);
+      await gravarArquivo(dados);
+      return resultado;
+    }
+    // Banco hospedado: lê, aplica e grava só se ninguém gravou no meio; senão, tenta de novo.
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+      const { dados, versao } = await lerRemoto();
+      const resultado = await fn(dados);
+      const nova = await rpc<number>("hunter_gravar", { p_dados: dados, p_versao: versao });
+      if (Number(nova) > 0) return resultado;
+    }
+    throw new Error("Outra alteração foi salva ao mesmo tempo. Tente de novo.");
   });
   fila = tarefa.catch(() => undefined);
   return tarefa;
