@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { COOKIE_SESSAO, criarSessao, opcoesCookie, sessaoConfigurada } from "@/lib/sessao";
 import {
   SENHA_MINIMA,
+  buscarUsuario,
   criarUsuario,
   emailValido,
   gerarHash,
   normalizarEmail,
   podeCadastrar,
+  senhaConfere,
 } from "@/lib/usuarios";
 
 export const dynamic = "force-dynamic";
@@ -27,8 +29,13 @@ export async function POST(req: NextRequest) {
   if (senha.length < SENHA_MINIMA) return voltar(req, "senha", email);
   if (!podeCadastrar(email)) return voltar(req, "nao-autorizado", email);
 
-  const usuario = await criarUsuario(email, await gerarHash(senha));
-  if (!usuario) return voltar(req, "existe", email);
+  let usuario = await criarUsuario(email, await gerarHash(senha));
+  if (!usuario) {
+    // Conta já existe (ex.: clique duplo no botão). Se a senha confere, só entra.
+    const existente = await buscarUsuario(email);
+    if (!existente || !(await senhaConfere(senha, existente.senha_hash))) return voltar(req, "existe", email);
+    usuario = { id: existente.id, email: existente.email };
+  }
 
   const res = NextResponse.redirect(new URL("/", req.url), 303);
   res.cookies.set(COOKIE_SESSAO, await criarSessao(usuario), opcoesCookie);
