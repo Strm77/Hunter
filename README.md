@@ -4,9 +4,9 @@ App web para organizar a busca de emprego da Carol: candidaturas e retornos, his
 
 > ## Onde ficam os dados
 >
-> - **Publicado (Vercel):** os dados ficam num **banco de dados hospedado** (projeto Supabase `hunter`, plano gratuito). Quem entra no endereço publicado com o código de acesso vê os mesmos dados, em qualquer aparelho: Brunno pelo celular e Carol pelo computador, por exemplo.
+> - **Publicado (Vercel):** os dados ficam num **banco de dados hospedado** (projeto Supabase `hunter`, plano gratuito). Quem entra no endereço publicado com e-mail e senha vê os mesmos dados, em qualquer aparelho: Brunno pelo celular e Carol pelo computador, por exemplo.
 > - **Rodando no próprio computador sem as variáveis do banco:** os dados ficam num arquivo no servidor onde o app roda (`data/hunter.json`). Instalações separadas não compartilham informação, e esse arquivo não persiste na Vercel.
-> - O acesso é restrito a quem tem o código (**Brunno e Carol**). O código fica só nas variáveis de ambiente, nunca no repositório.
+> - Só os e-mails listados em `HUNTER_EMAILS_PERMITIDOS` (**Brunno e Carol**) conseguem criar conta. A lista fica só nas variáveis de ambiente, nunca no repositório.
 > - Plano gratuito do Supabase: projetos sem uso por cerca de uma semana são pausados. Se o app mostrar erro de banco depois de muito tempo parado, reative o projeto no painel do Supabase.
 
 ## O que tem na V1
@@ -26,19 +26,20 @@ Uma versão **não guarda texto próprio**: ela só guarda referências (por id)
 
 O app começa vazio: não há dados de exemplo.
 
-## Trava de acesso
+## Login e cadastro
 
-Todo o app (páginas e API) fica atrás de um **código de acesso único** definido na variável de ambiente `HUNTER_ACCESS_CODE`:
+Todo o app (páginas e API) fica atrás de login com **e-mail e senha**:
 
-- o middleware (`src/middleware.ts`) bloqueia tudo sem uma sessão válida e redireciona para `/entrar`; a API responde 401;
-- ao digitar o código certo (comparado no servidor, em `/api/entrar`), o navegador recebe um cookie `httpOnly` e `sameSite=lax` no formato `<expiração>.<HMAC-SHA256(código, expiração)>`. O código nunca vai para o cookie;
-- o middleware confere a assinatura e a expiração (30 dias) **no servidor** a cada requisição: um cookie alterado, expirado ou assinado com outro código é recusado;
-- **sem `HUNTER_ACCESS_CODE` configurado (ou com menos de 8 caracteres), o app fica fechado para todos**;
-- trocar o código invalida todas as sessões; o botão “Sair” encerra a sessão no navegador.
+- `/cadastro`: e-mail, senha (mínimo 8 caracteres) e pronto, já entra no app. Só aceita e-mails da lista `HUNTER_EMAILS_PERMITIDOS` (separados por vírgula). **Sem essa variável, ninguém consegue se cadastrar.**
+- `/entrar`: e-mail e senha. Erro de login espera 0,8 s antes de responder, para frear tentativas repetidas.
+- As senhas são guardadas só como hash `scrypt` com sal aleatório (tabela `hunter_privado.usuario`, ou `data/usuarios.json` sem banco). A senha em si nunca é salva.
+- A sessão é um cookie `httpOnly`, `sameSite=lax`, assinado com HMAC-SHA256 e válido por 30 dias. O middleware (`src/middleware.ts`) confere assinatura e validade **no servidor** a cada requisição; sem sessão válida, as páginas redirecionam para `/entrar` e a API responde 401.
+- A chave que assina a sessão vem de `HUNTER_SESSION_SECRET` (ou, se não existir, do `HUNTER_DB_TOKEN`). Trocar essa chave encerra todas as sessões. O botão “Sair” encerra a sessão no navegador.
+- Os dados (candidaturas, vagas, perfil, currículos) são os mesmos para todas as contas: as contas servem para controlar quem entra.
 
-Limites conhecidos: é um código compartilhado (não há contas individuais) e a proteção contra tentativas repetidas é só um atraso de 1 s por erro. Use um código longo e aleatório.
+Ainda não há “esqueci minha senha”. Para redefinir, apague a linha do e-mail em `hunter_privado.usuario` e cadastre de novo.
 
-Nenhum segredo vai para o repositório: o valor fica só no `.env.local` (ignorado pelo git). Veja `.env.example`.
+Nenhum segredo vai para o repositório: os valores ficam só no `.env.local` (ignorado pelo git) e nas variáveis da Vercel. Veja `.env.example`.
 
 ## Como rodar
 
@@ -47,11 +48,11 @@ Requisitos: Node.js 20 ou mais recente.
 ```bash
 npm install
 cp .env.example .env.local
-# edite .env.local e defina HUNTER_ACCESS_CODE (ex.: openssl rand -base64 24)
+# edite .env.local: HUNTER_EMAILS_PERMITIDOS e HUNTER_SESSION_SECRET (ex.: openssl rand -base64 32)
 npm run dev
 ```
 
-Abra http://localhost:3000 e entre com o código.
+Abra http://localhost:3000, crie a conta em /cadastro e entre.
 
 Para rodar em modo produção local: `npm run build && npm start`.
 
@@ -62,7 +63,7 @@ Para rodar em modo produção local: `npm run build && npm start`.
 
 ### Banco de dados (Supabase)
 
-O esquema está em `supabase/migrations/`. As tabelas ficam no schema `hunter_privado`, que a API pública não expõe. O app acessa só por duas funções, `hunter_ler` e `hunter_gravar`, que recusam qualquer chamada sem o `HUNTER_DB_TOKEN`; o banco guarda apenas o SHA-256 desse token. Por isso a chave publicável do Supabase, sozinha, não lê nem grava nada.
+O esquema está em `supabase/migrations/`. As tabelas ficam no schema `hunter_privado`, que a API pública não expõe. O app acessa só por funções (`hunter_ler`, `hunter_gravar`, `hunter_usuario_criar`, `hunter_usuario_buscar`) que recusam qualquer chamada sem o `HUNTER_DB_TOKEN`; o banco guarda apenas o SHA-256 desse token. Por isso a chave publicável do Supabase, sozinha, não lê nem grava nada.
 
 Para trocar o token: gere um novo, atualize o hash em `hunter_privado.acesso` e a variável `HUNTER_DB_TOKEN` na Vercel, e publique de novo.
 
@@ -70,28 +71,30 @@ Para trocar o token: gere um novo, atualize o hash em `hunter_privado.acesso` e 
 
 ```
 src/
-  middleware.ts           trava de acesso
+  middleware.ts           exige login em todas as páginas e na API
   lib/types.ts            modelos de dados
   lib/db.ts               leitura/escrita do JSON, validação e sanitização
-  lib/sessao.ts           código de acesso e cookie de sessão
-  app/api/...             rotas: /api/candidaturas, /api/vagas, /api/curriculos, /api/perfil, /api/entrar, /api/sair
+  lib/sessao.ts           cookie de sessão assinado
+  lib/usuarios.ts         contas, hash de senha e lista de e-mails permitidos
+  app/api/...             rotas: /api/candidaturas, /api/vagas, /api/curriculos, /api/perfil, /api/entrar, /api/cadastro, /api/sair
   app/page.tsx            painel de candidaturas
-  app/vagas, perfil, curriculos, entrar   demais telas
+  app/vagas, perfil, curriculos, entrar, cadastro   demais telas
 ```
 
 ## Deploy na Vercel
 
 O app está publicado no projeto `hunter` da Vercel. Variáveis de ambiente configuradas lá (produção):
 
-- `HUNTER_ACCESS_CODE`: código de acesso;
+- `HUNTER_EMAILS_PERMITIDOS`: e-mails que podem criar conta, separados por vírgula;
+- `HUNTER_SESSION_SECRET` (opcional): chave que assina as sessões; sem ela, usa o `HUNTER_DB_TOKEN`;
 - `HUNTER_SUPABASE_URL` e `HUNTER_SUPABASE_KEY`: endereço e chave publicável do projeto Supabase `hunter`;
 - `HUNTER_DB_TOKEN`: token secreto do servidor para o banco.
 
-Para trocar o código de acesso, mude `HUNTER_ACCESS_CODE` na Vercel e publique de novo; isso também encerra todas as sessões abertas.
+Para liberar outra pessoa, acrescente o e-mail em `HUNTER_EMAILS_PERMITIDOS` e publique de novo.
 
 ## Fases futuras (fora da V1)
 
-- Login multiusuário (contas individuais no lugar do código compartilhado).
+- Dados separados por conta e recuperação de senha por e-mail.
 - Busca automática de vagas.
 - Candidatura automática.
 - Integração com o LinkedIn.

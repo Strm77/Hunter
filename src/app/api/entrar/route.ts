@@ -1,43 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import {
-  COOKIE_SESSAO,
-  DURACAO_SESSAO_S,
-  codigoConfigurado,
-  criarSessao,
-  destinoSeguro,
-  iguais,
-  resumoDoCodigo,
-} from "@/lib/sessao";
+import { COOKIE_SESSAO, criarSessao, destinoSeguro, opcoesCookie, sessaoConfigurada } from "@/lib/sessao";
+import { buscarUsuario, hashParaComparacaoVazia, normalizarEmail, senhaConfere } from "@/lib/usuarios";
 
 export const dynamic = "force-dynamic";
 
-function redirecionar(req: NextRequest, caminho: string) {
-  return NextResponse.redirect(new URL(caminho, req.url), 303);
+function voltar(req: NextRequest, erro: string, email: string, proximo: string) {
+  const q = new URLSearchParams({ erro });
+  if (email) q.set("email", email);
+  if (proximo !== "/") q.set("proximo", proximo);
+  return NextResponse.redirect(new URL(`/entrar?${q}`, req.url), 303);
 }
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();
-  const tentativa = String(form.get("codigo") ?? "");
+  const email = normalizarEmail(form.get("email"));
+  const senha = String(form.get("senha") ?? "");
   const proximo = destinoSeguro(form.get("proximo"));
-  const codigo = codigoConfigurado();
 
-  if (!codigo) return redirecionar(req, "/entrar?erro=config");
+  if (!sessaoConfigurada()) return voltar(req, "config", email, proximo);
 
-  const [esperado, recebido] = await Promise.all([resumoDoCodigo(codigo), resumoDoCodigo(tentativa)]);
-  if (!iguais(esperado, recebido)) {
-    // Atraso fixo para desencorajar tentativas em sequência.
-    await new Promise((r) => setTimeout(r, 1000));
-    const q = proximo !== "/" ? `&proximo=${encodeURIComponent(proximo)}` : "";
-    return redirecionar(req, `/entrar?erro=codigo${q}`);
+  const usuario = email ? await buscarUsuario(email) : null;
+  const ok = await senhaConfere(senha, usuario?.senha_hash ?? (await hashParaComparacaoVazia()));
+  if (!usuario || !ok) {
+    await new Promise((r) => setTimeout(r, 800)); // desencoraja tentativas em sequência
+    return voltar(req, "credenciais", email, proximo);
   }
 
-  const res = redirecionar(req, proximo);
-  res.cookies.set(COOKIE_SESSAO, await criarSessao(codigo), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: DURACAO_SESSAO_S,
-  });
+  const res = NextResponse.redirect(new URL(proximo, req.url), 303);
+  res.cookies.set(COOKIE_SESSAO, await criarSessao(usuario), opcoesCookie);
   return res;
 }

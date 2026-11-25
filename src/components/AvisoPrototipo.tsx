@@ -5,8 +5,8 @@ export default function AvisoPrototipo() {
     <footer className="nao-imprimir mx-auto max-w-6xl px-4 pb-8 pt-2 text-xs text-tinta/50 sm:px-6">
       {usaBancoHospedado ? (
         <p>
-          <strong className="font-semibold text-tinta/60">Hunter V1.</strong> Acesso restrito a quem tem o código. Os
-          dados ficam num banco de dados hospedado e são os mesmos para todos que entram, em qualquer aparelho.
+          <strong className="font-semibold text-tinta/60">Hunter V1.</strong> Acesso com e-mail e senha, só para contas
+          autorizadas. Os dados ficam num banco de dados hospedado e são os mesmos para todos que entram, em qualquer aparelho.
         </p>
       ) : (
         <p>

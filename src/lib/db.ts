@@ -31,7 +31,7 @@ const SUPABASE_KEY = process.env.HUNTER_SUPABASE_KEY;
 const DB_TOKEN = process.env.HUNTER_DB_TOKEN;
 export const usaBancoHospedado = Boolean(SUPABASE_URL && SUPABASE_KEY && DB_TOKEN);
 
-const PASTA = process.env.HUNTER_DATA_DIR || path.join(process.cwd(), "data");
+export const PASTA = process.env.HUNTER_DATA_DIR || path.join(process.cwd(), "data");
 const ARQUIVO = path.join(PASTA, "hunter.json");
 
 function bancoVazio(): BancoDeDados {
@@ -51,7 +51,7 @@ function normalizar(dados: Partial<BancoDeDados> | null | undefined): BancoDeDad
 
 // ----- Banco hospedado -----
 
-async function rpc<T>(funcao: string, corpo: Record<string, unknown>): Promise<T> {
+export async function rpc<T>(funcao: string, corpo: Record<string, unknown>): Promise<T> {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${funcao}`, {
     method: "POST",
     headers: { apikey: SUPABASE_KEY!, "Content-Type": "application/json" },
