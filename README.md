@@ -13,8 +13,17 @@ App web para organizar a busca de emprego da Carol: candidaturas e retornos, his
 
 1. **Candidaturas e retornos** (`/`): empresa, cargo, data, status (Candidatada, Em análise, Retorno recebido, Entrevista, Recusada, Aprovada), próxima ação e observações. Filtros por status, busca e contadores (total, aguardando retorno, com retorno, entrevistas). Cada candidatura pode apontar para a vaga do histórico e para a versão do currículo enviada.
 2. **Histórico de vagas** (`/vagas`): título, empresa, link da publicação no LinkedIn (abre a vaga original em nova aba), data em que foi salva e notas. Criar, ver, editar e excluir.
-3. **Perfil profissional** (`/perfil`): dados pessoais, resumo, experiências, formação, certificações e habilidades. Tudo preenchido à mão; nada é gerado automaticamente.
+3. **Perfil profissional** (`/perfil`): dados pessoais, resumo, experiências, formação, certificações e habilidades. Preenchido à mão ou **importado do PDF do currículo** (veja abaixo).
 4. **Currículos por vaga** (`/curriculos`): versões do currículo-base vinculadas a uma vaga, com registro da data em que foram enviadas. Pré-visualização e impressão/PDF pelo navegador.
+
+### Importar currículo em PDF
+
+Em `/perfil`, “Escolher PDF” envia o arquivo para `/api/perfil/importar`, que lê o texto com posição, tamanho e fonte (`unpdf`) e separa nos campos (`src/lib/leitorCurriculo.ts`): nome, título, e-mail, telefone, LinkedIn, resumo, experiências (empresa, cargo, datas, atividades), formação, certificações (nome e emissor) e habilidades (inclui idiomas). Entende layout em duas colunas e seções que continuam na página seguinte.
+
+- Não usa IA nem serviço externo, e não tem custo. Só copia texto que está no PDF; nada é inventado.
+- O PDF é lido em memória e descartado; não é guardado.
+- O resultado só preenche campos vazios e acrescenta itens que ainda não existem. Nada é salvo até clicar em “Salvar perfil”.
+- PDF escaneado (imagem) não tem texto para ler. Layouts muito diferentes podem precisar de ajuste à mão na revisão.
 
 ### Regra das versões de currículo
 

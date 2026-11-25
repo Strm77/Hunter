@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { InputHTMLAttributes, useEffect, useRef, useState } from "react";
 import { api, novoId } from "@/lib/api";
 import { Certificacao, Experiencia, Formacao, Perfil, perfilVazio } from "@/lib/types";
 import { Botao, Cabecalho, Campo, Cartao, Erro, classeCampo } from "@/components/ui";
@@ -13,6 +13,9 @@ export default function PerfilPage() {
   const [mensagem, setMensagem] = useState("");
   const [erro, setErro] = useState("");
   const [novaHabilidade, setNovaHabilidade] = useState("");
+  const [importando, setImportando] = useState(false);
+  const [importacao, setImportacao] = useState<{ resumo: string; avisos: string[] } | null>(null);
+  const arquivoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api
@@ -67,6 +70,28 @@ export default function PerfilPage() {
     setNovaHabilidade("");
   }
 
+  async function importarPdf(arquivo: File) {
+    setImportando(true);
+    setErro("");
+    setImportacao(null);
+    try {
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivo);
+      const r = await fetch("/api/perfil/importar", { method: "POST", body: corpo });
+      const dados = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(dados.erro ?? `Erro ${r.status}`);
+      const lido = dados.perfil as Perfil;
+      const { perfil: novo, resumo } = mesclarPerfil(perfil, lido);
+      atualizar(() => novo);
+      setImportacao({ resumo, avisos: dados.avisos ?? [] });
+    } catch (e) {
+      setErro((e as Error).message);
+    } finally {
+      setImportando(false);
+      if (arquivoRef.current) arquivoRef.current.value = "";
+    }
+  }
+
   if (carregando) return <p className="text-sm text-tinta/50">Carregando…</p>;
 
   const p = perfil.pessoais;
@@ -75,9 +100,43 @@ export default function PerfilPage() {
     <div className="pb-24">
       <Cabecalho
         titulo="Perfil profissional"
-        descricao="Este é o currículo-base. Tudo aqui é preenchido à mão; as versões por vaga só usam o que estiver cadastrado aqui."
+        descricao="Este é o currículo-base. Preencha à mão ou importe do PDF do seu currículo e revise; as versões por vaga só usam o que estiver cadastrado aqui."
       />
       <Erro mensagem={erro} />
+
+      <Cartao className="mb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Importar do PDF do currículo</h2>
+            <p className="mt-1 text-sm text-tinta/60">
+              O texto do PDF é separado nos campos abaixo. Nada é salvo até você revisar e clicar em “Salvar perfil”.
+            </p>
+          </div>
+          <label className={`cursor-pointer rounded-md bg-marca px-3 py-2 text-sm font-medium text-white hover:bg-marca/90 ${importando ? "pointer-events-none opacity-60" : ""}`}>
+            {importando ? "Lendo o PDF…" : "Escolher PDF"}
+            <input
+              ref={arquivoRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              className="sr-only"
+              disabled={importando}
+              onChange={(e) => e.target.files?.[0] && importarPdf(e.target.files[0])}
+            />
+          </label>
+        </div>
+        {importacao && (
+          <div className="mt-4 rounded-md bg-marca/10 px-3 py-2 text-sm">
+            <p>{importacao.resumo} Revise os campos e clique em “Salvar perfil”.</p>
+            {importacao.avisos.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-tinta/70">
+                {importacao.avisos.map((a) => (
+                  <li key={a}>{a}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Cartao>
 
       <div className="space-y-5">
         <Cartao>
@@ -149,11 +208,10 @@ export default function PerfilPage() {
               </Campo>
               <div className="grid grid-cols-2 gap-3">
                 <Campo rotulo="Início">
-                  <input type="month" className={classeCampo} value={e.inicio} onChange={(ev) => set({ inicio: ev.target.value })} />
+                  <CampoMes className={classeCampo} value={e.inicio} onChange={(ev) => set({ inicio: ev.target.value })} />
                 </Campo>
                 <Campo rotulo="Fim">
-                  <input
-                    type="month"
+                  <CampoMes
                     className={classeCampo}
                     value={e.fim}
                     disabled={e.atual}
@@ -188,10 +246,10 @@ export default function PerfilPage() {
                 <input className={classeCampo} value={f.instituicao} onChange={(ev) => set({ instituicao: ev.target.value })} />
               </Campo>
               <Campo rotulo="Início">
-                <input type="month" className={classeCampo} value={f.inicio} onChange={(ev) => set({ inicio: ev.target.value })} />
+                <CampoMes className={classeCampo} value={f.inicio} onChange={(ev) => set({ inicio: ev.target.value })} />
               </Campo>
               <Campo rotulo="Conclusão (ou previsão)">
-                <input type="month" className={classeCampo} value={f.fim} onChange={(ev) => set({ fim: ev.target.value })} />
+                <CampoMes className={classeCampo} value={f.fim} onChange={(ev) => set({ fim: ev.target.value })} />
               </Campo>
               <Campo rotulo="Observação" className="sm:col-span-2">
                 <input className={classeCampo} value={f.observacao} onChange={(ev) => set({ observacao: ev.target.value })} />
@@ -216,7 +274,7 @@ export default function PerfilPage() {
                 <input className={classeCampo} value={c.emissor} onChange={(ev) => set({ emissor: ev.target.value })} />
               </Campo>
               <Campo rotulo="Data">
-                <input type="month" className={classeCampo} value={c.data} onChange={(ev) => set({ data: ev.target.value })} />
+                <CampoMes className={classeCampo} value={c.data} onChange={(ev) => set({ data: ev.target.value })} />
               </Campo>
               <Campo rotulo="Link de verificação (opcional)">
                 <input type="url" className={classeCampo} value={c.link} onChange={(ev) => set({ link: ev.target.value })} />
@@ -334,4 +392,61 @@ function ListaEditavel<T extends { id: string }>({
       </div>
     </Cartao>
   );
+}
+
+/** Campo de mês; se o valor tiver só o ano (comum em PDFs), mostra como texto para não sumir. */
+function CampoMes(props: InputHTMLAttributes<HTMLInputElement> & { value: string }) {
+  const soAno = /^\d{4}$/.test(props.value);
+  return <input {...props} type={soAno ? "text" : "month"} placeholder={soAno ? "AAAA" : props.placeholder} />;
+}
+
+const chave = (...partes: string[]) => partes.map((p) => p.trim().toLowerCase()).join("|");
+
+/**
+ * Junta o que veio do PDF com o perfil atual: preenche só campos vazios e acrescenta itens
+ * que ainda não existem (mesmo cargo e empresa, mesmo curso, mesmo nome). Nada já cadastrado é apagado.
+ */
+function mesclarPerfil(atual: Perfil, lido: Perfil): { perfil: Perfil; resumo: string } {
+  const pessoais = { ...atual.pessoais };
+  let campos = 0;
+  for (const k of Object.keys(pessoais) as (keyof Perfil["pessoais"])[]) {
+    if (!pessoais[k].trim() && lido.pessoais[k]?.trim()) {
+      pessoais[k] = lido.pessoais[k];
+      campos++;
+    }
+  }
+  const resumo = atual.resumo.trim() ? atual.resumo : lido.resumo;
+  if (!atual.resumo.trim() && lido.resumo.trim()) campos++;
+
+  const novos = <T,>(existentes: T[], vindos: T[], k: (x: T) => string) => {
+    const vistos = new Set(existentes.map(k));
+    return vindos.filter((x) => !vistos.has(k(x)));
+  };
+  const exp = novos(atual.experiencias, lido.experiencias, (e) => chave(e.cargo, e.empresa));
+  const form = novos(atual.formacoes, lido.formacoes, (f) => chave(f.curso, f.instituicao));
+  const cert = novos(atual.certificacoes, lido.certificacoes, (c) => chave(c.nome));
+  const hab = novos(atual.habilidades, lido.habilidades, (h) => chave(h.nome));
+
+  const partes = [
+    campos && `${campos} campo(s) de dados pessoais e resumo`,
+    exp.length && `${exp.length} experiência(s)`,
+    form.length && `${form.length} formação(ões)`,
+    cert.length && `${cert.length} certificação(ões)`,
+    hab.length && `${hab.length} habilidade(s)`,
+  ].filter(Boolean);
+
+  return {
+    perfil: {
+      ...atual,
+      pessoais,
+      resumo,
+      experiencias: [...atual.experiencias, ...exp],
+      formacoes: [...atual.formacoes, ...form],
+      certificacoes: [...atual.certificacoes, ...cert],
+      habilidades: [...atual.habilidades, ...hab],
+    },
+    resumo: partes.length
+      ? `Importado do PDF: ${partes.join(", ")}.`
+      : "O PDF não trouxe nada novo: tudo o que foi lido já está no perfil.",
+  };
 }

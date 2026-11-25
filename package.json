@@ -12,7 +12,8 @@
     "next": "15.5.29",
     "react": "19.1.10",
     "react-dom": "19.1.10",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "unpdf": "2.1.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.7",
