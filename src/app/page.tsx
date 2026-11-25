@@ -6,11 +6,12 @@ import { api, ehLinkSeguro, formatarData, hojeISO } from "@/lib/api";
 import { Candidatura, Curriculo, STATUS_CANDIDATURA, StatusCandidatura, Vaga } from "@/lib/types";
 import { Botao, Cabecalho, Campo, Erro, Modal, Vazio, classeCampo } from "@/components/ui";
 import { corStatus } from "@/components/StatusBadge";
+import Historico from "@/components/Historico";
 
 const AGUARDANDO: StatusCandidatura[] = ["Candidatada", "Em análise"];
 const COM_RETORNO: StatusCandidatura[] = ["Retorno recebido", "Entrevista", "Recusada", "Aprovada"];
 
-type Form = Omit<Candidatura, "id" | "criadoEm" | "atualizadoEm">;
+type Form = Omit<Candidatura, "id" | "criadoEm" | "atualizadoEm" | "historico" | "curriculoEnviado">;
 
 const formVazio = (): Form => ({
   empresa: "",
@@ -33,6 +34,7 @@ export default function PainelPage() {
   const [editando, setEditando] = useState<string | null>(null); // "novo" | id
   const [form, setForm] = useState<Form>(formVazio());
   const [erro, setErro] = useState("");
+  const [historicoDe, setHistoricoDe] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     const [c, v, cv] = await Promise.all([
@@ -112,7 +114,16 @@ export default function PainelPage() {
 
   async function mudarStatus(c: Candidatura, status: StatusCandidatura) {
     setItens((lista) => lista.map((i) => (i.id === c.id ? { ...i, status } : i)));
-    await api.atualizar("candidaturas", c.id, { status });
+    try {
+      substituir(await api.atualizar<Candidatura>("candidaturas", c.id, { status }));
+    } catch (e) {
+      setErro((e as Error).message);
+      await carregar();
+    }
+  }
+
+  function substituir(c: Candidatura) {
+    setItens((lista) => lista.map((i) => (i.id === c.id ? c : i)));
   }
 
   function escolherVaga(vagaId: string) {
@@ -232,15 +243,27 @@ export default function PainelPage() {
                       )}
                     </span>
                   )}
-                  {cv && (
+                  {c.curriculoEnviado ? (
                     <span>
                       Currículo enviado:{" "}
-                      <Link href={`/curriculos/${cv.id}`} className="text-marca underline">
-                        {cv.nome}
+                      <Link href={`/candidaturas/${c.id}/curriculo`} className="text-marca underline">
+                        {c.curriculoEnviado.curriculo.nome}
                       </Link>
                     </span>
+                  ) : (
+                    cv && (
+                      <span>
+                        Currículo enviado:{" "}
+                        <Link href={`/curriculos/${cv.id}`} className="text-marca underline">
+                          {cv.nome}
+                        </Link>
+                      </span>
+                    )
                   )}
                   <span className="ml-auto flex gap-1">
+                    <Botao variante="fantasma" className="!py-1" onClick={() => setHistoricoDe(c.id)}>
+                      Histórico ({c.historico?.length ?? 0})
+                    </Botao>
                     <Botao variante="fantasma" className="!py-1" onClick={() => abrirEdicao(c)}>
                       Editar
                     </Botao>
@@ -254,6 +277,19 @@ export default function PainelPage() {
           })}
         </ul>
       )}
+
+      {(() => {
+        const c = itens.find((i) => i.id === historicoDe);
+        return (
+          <Modal
+            titulo={c ? `Histórico · ${c.cargo} na ${c.empresa}` : "Histórico"}
+            aberto={Boolean(c)}
+            aoFechar={() => setHistoricoDe(null)}
+          >
+            {c && <Historico candidatura={c} aoAtualizar={substituir} />}
+          </Modal>
+        );
+      })()}
 
       <Modal
         titulo={editando === "novo" ? "Nova candidatura" : "Editar candidatura"}
