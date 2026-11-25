@@ -7,6 +7,8 @@ const CORES: Record<StatusCandidatura, string> = {
   Entrevista: "bg-violet-100 text-violet-800",
   Recusada: "bg-red-100 text-red-700",
   Aprovada: "bg-emerald-100 text-emerald-800",
+  "Sem retorno": "bg-stone-100 text-stone-600",
+  Desisti: "bg-stone-100 text-stone-600",
 };
 
 export function corStatus(s: StatusCandidatura) {

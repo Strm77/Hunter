@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { criarItem, ehColecao, ErroValidacao, lerBanco } from "@/lib/db";
+import { autorAtual } from "@/lib/autor";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!ehColecao(collection)) return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
   try {
     const corpo = await req.json();
-    const item = await criarItem(collection, corpo ?? {});
+    const item = await criarItem(collection, corpo ?? {}, await autorAtual());
     return NextResponse.json(item, { status: 201 });
   } catch (e) {
     if (e instanceof ErroValidacao) return NextResponse.json({ erro: e.message }, { status: 400 });

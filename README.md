@@ -11,8 +11,9 @@ App web para organizar a busca de emprego da Carol: candidaturas e retornos, his
 
 ## O que tem na V1
 
-1. **Candidaturas e retornos** (`/`): empresa, cargo, data, status (Candidatada, Em análise, Retorno recebido, Entrevista, Recusada, Aprovada), próxima ação e observações. Filtros por status, busca e contadores (total, aguardando retorno, com retorno, entrevistas). Cada candidatura pode apontar para a vaga do histórico e para a versão do currículo enviada.
-2. **Histórico de vagas** (`/vagas`): título, empresa, link da publicação no LinkedIn (abre a vaga original em nova aba), data em que foi salva e notas. Criar, ver, editar e excluir.
+1. **Candidaturas e retornos** (`/`): empresa, cargo, data, status (Candidatada, Em análise, Retorno recebido, Entrevista, Recusada, Aprovada, Sem retorno, Desisti), próxima ação e observações. Filtros por status, busca e contadores (total, aguardando retorno, com retorno, entrevistas). Cada candidatura pode apontar para a vaga do histórico e para a versão do currículo enviada. **Histórico**: linha do tempo com cada passo (contato, entrevista, nota); toda mudança de status entra sozinha, com data e e-mail de quem registrou. Ao vincular uma versão do currículo, ela fica **congelada** na candidatura (`/candidaturas/<id>/curriculo`): mudanças posteriores no perfil não alteram o registro do que foi enviado.
+2. **Histórico de vagas** (`/vagas`): título, empresa, link da publicação (abre a vaga original em nova aba), tema, descrição completa colada, local, modalidade, tipo de candidatura, origem, situação na triagem (Nova, Em preparação, Pronta para enviar, Candidatada, Descartada), data e notas. Filtros por tema e situação. Vaga repetida (mesmo link ou mesmo código de vaga do LinkedIn) é recusada. **Marcar como enviada**: depois que a titular envia a candidatura pelo site da vaga, registra aqui; o Hunter cria a candidatura, vincula e congela a versão do currículo e marca a vaga como Candidatada.
+   - **Temas** (`/temas`): os tipos de vaga que interessam (ex.: "Comunicação"), com palavras-chave, termos a evitar, local, modalidade, senioridade e ativo/pausado.
 3. **Perfil profissional** (`/perfil`): dados pessoais, resumo, experiências, formação, certificações e habilidades. Preenchido à mão ou **importado do PDF do currículo** (veja abaixo).
 4. **Currículos por vaga** (`/curriculos`): versões do currículo-base vinculadas a uma vaga, com registro da data em que foram enviadas. Pré-visualização e impressão/PDF pelo navegador.
 
@@ -85,7 +86,7 @@ src/
   lib/db.ts               leitura/escrita do JSON, validação e sanitização
   lib/sessao.ts           cookie de sessão assinado
   lib/usuarios.ts         contas, hash de senha e lista de e-mails permitidos
-  app/api/...             rotas: /api/candidaturas, /api/vagas, /api/curriculos, /api/perfil, /api/entrar, /api/cadastro, /api/sair
+  app/api/...             rotas: /api/candidaturas, /api/vagas, /api/temas, /api/curriculos, /api/perfil, /api/marcar-enviada, /api/entrar, /api/cadastro, /api/sair
   app/page.tsx            painel de candidaturas
   app/vagas, perfil, curriculos, entrar, cadastro   demais telas
 ```

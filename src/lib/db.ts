@@ -7,10 +7,23 @@ import {
   Candidatura,
   Colecao,
   Curriculo,
+  CurriculoCongelado,
+  EventoHistorico,
   ItemSelecionado,
+  MODALIDADES,
+  Modalidade,
+  ORIGENS_VAGA,
+  OrigemVaga,
   Perfil,
+  SITUACOES_VAGA,
   STATUS_CANDIDATURA,
+  SituacaoVaga,
   StatusCandidatura,
+  TIPOS_CANDIDATURA,
+  TIPOS_EVENTO,
+  Tema,
+  TipoCandidatura,
+  TipoEvento,
   Vaga,
   perfilVazio,
 } from "./types";
@@ -35,17 +48,31 @@ export const PASTA = process.env.HUNTER_DATA_DIR || path.join(process.cwd(), "da
 const ARQUIVO = path.join(PASTA, "hunter.json");
 
 function bancoVazio(): BancoDeDados {
-  return { versao: 1, perfil: perfilVazio(), candidaturas: [], vagas: [], curriculos: [] };
+  return { versao: 1, perfil: perfilVazio(), candidaturas: [], vagas: [], curriculos: [], temas: [] };
 }
 
 function normalizar(dados: Partial<BancoDeDados> | null | undefined): BancoDeDados {
   if (!dados) return bancoVazio();
+  const lista = <T>(v: unknown) => (Array.isArray(v) ? (v as T[]) : []);
+  // Itens gravados antes de um campo existir ganham o valor padrão, mantendo id e datas.
+  const comDatas = (b: Bruto) => ({
+    id: texto(b.id, 100) || randomUUID(),
+    criadoEm: texto(b.criadoEm, 40),
+    atualizadoEm: texto(b.atualizadoEm, 40),
+  });
   return {
     versao: 1,
     perfil: sanitizarPerfil(dados.perfil ?? perfilVazio()),
-    candidaturas: Array.isArray(dados.candidaturas) ? dados.candidaturas : [],
-    vagas: Array.isArray(dados.vagas) ? dados.vagas : [],
-    curriculos: Array.isArray(dados.curriculos) ? dados.curriculos : [],
+    candidaturas: lista<Bruto>(dados.candidaturas).map((b) => ({
+      ...(b as unknown as Candidatura),
+      ...sanitizarCandidatura(b),
+      historico: sanitizarHistorico(b.historico),
+      curriculoEnviado: (b.curriculoEnviado as CurriculoCongelado | null) ?? null,
+      ...comDatas(b),
+    })),
+    vagas: lista<Bruto>(dados.vagas).map((b) => ({ ...sanitizarVaga(b), ...comDatas(b) })),
+    curriculos: lista<Curriculo>(dados.curriculos),
+    temas: lista<Bruto>(dados.temas).map((b) => ({ ...sanitizarTema(b), ...comDatas(b) })),
   };
 }
 
@@ -149,7 +176,9 @@ function id(v: unknown) {
   return s || randomUUID();
 }
 
-function sanitizarCandidatura(b: Bruto): Omit<Candidatura, "id" | "criadoEm" | "atualizadoEm"> {
+function sanitizarCandidatura(
+  b: Bruto,
+): Omit<Candidatura, "id" | "criadoEm" | "atualizadoEm" | "historico" | "curriculoEnviado"> {
   const status = STATUS_CANDIDATURA.includes(b.status as StatusCandidatura)
     ? (b.status as StatusCandidatura)
     : "Candidatada";
@@ -165,13 +194,109 @@ function sanitizarCandidatura(b: Bruto): Omit<Candidatura, "id" | "criadoEm" | "
   };
 }
 
+function opcao<T extends string>(v: unknown, opcoes: readonly T[], padrao: T): T {
+  return opcoes.includes(v as T) ? (v as T) : padrao;
+}
+
+/** Lista de termos: aceita array ou texto separado por vírgula/linha; sem repetidos nem vazios. */
+function termos(v: unknown): string[] {
+  const brutos = Array.isArray(v) ? v : typeof v === "string" ? v.split(/[,;\n]/) : [];
+  const vistos = new Set<string>();
+  const saida: string[] = [];
+  for (const t of brutos) {
+    const limpo = texto(t, 100).trim();
+    if (!limpo || vistos.has(limpo.toLowerCase())) continue;
+    vistos.add(limpo.toLowerCase());
+    saida.push(limpo);
+    if (saida.length >= 50) break;
+  }
+  return saida;
+}
+
+/** Código numérico da vaga no LinkedIn (…/jobs/view/1234567890 ou ?currentJobId=1234567890). */
+export function codigoLinkedin(link: string): string {
+  if (!link) return "";
+  try {
+    const url = new URL(link);
+    if (!/(^|\.)linkedin\.com$/i.test(url.hostname)) return "";
+    const doCaminho = url.pathname.match(/\/jobs\/view\/(?:[^/]*?-)?(\d{6,})\/?/);
+    if (doCaminho) return doCaminho[1];
+    const daBusca = url.searchParams.get("currentJobId");
+    return daBusca && /^\d{6,}$/.test(daBusca) ? daBusca : "";
+  } catch {
+    return "";
+  }
+}
+
 function sanitizarVaga(b: Bruto): Omit<Vaga, "id" | "criadoEm" | "atualizadoEm"> {
+  const link = linkSeguro(b.link);
   return {
     titulo: texto(b.titulo, 200).trim(),
     empresa: texto(b.empresa, 200).trim(),
-    link: linkSeguro(b.link),
+    link,
+    codigoLinkedin: codigoLinkedin(link),
     salvaEm: data(b.salvaEm) || hoje(),
     notas: texto(b.notas),
+    temaId: texto(b.temaId, 100),
+    descricao: texto(b.descricao, 30000),
+    local: texto(b.local, 200).trim(),
+    modalidade: opcao<Modalidade | "">(b.modalidade, MODALIDADES, ""),
+    origem: opcao<OrigemVaga>(b.origem, ORIGENS_VAGA, "Colada manualmente"),
+    tipoCandidatura: opcao<TipoCandidatura>(b.tipoCandidatura, TIPOS_CANDIDATURA, "Não sei"),
+    situacao: opcao<SituacaoVaga>(b.situacao, SITUACOES_VAGA, "Nova"),
+  };
+}
+
+function sanitizarTema(b: Bruto): Omit<Tema, "id" | "criadoEm" | "atualizadoEm"> {
+  return {
+    nome: texto(b.nome, 100).trim(),
+    palavrasChave: termos(b.palavrasChave),
+    excluir: termos(b.excluir),
+    local: texto(b.local, 200).trim(),
+    modalidade: opcao<Modalidade | "">(b.modalidade, MODALIDADES, ""),
+    senioridade: texto(b.senioridade, 100).trim(),
+    ativo: b.ativo === undefined ? true : Boolean(b.ativo),
+  };
+}
+
+function sanitizarEvento(b: Bruto, autor: string): EventoHistorico {
+  return {
+    id: texto(b.id, 100) || randomUUID(),
+    data: data(b.data) || hoje(),
+    tipo: opcao<TipoEvento>(b.tipo, TIPOS_EVENTO, "Nota"),
+    de: texto(b.de, 50),
+    para: texto(b.para, 50),
+    descricao: texto(b.descricao, 2000).trim(),
+    autor: texto(b.autor, 200) || autor,
+    registradoEm: texto(b.registradoEm, 40) || new Date().toISOString(),
+  };
+}
+
+function sanitizarHistorico(v: unknown): EventoHistorico[] {
+  return (Array.isArray(v) ? (v as Bruto[]) : []).slice(0, 500).map((e) => sanitizarEvento(e ?? {}, ""));
+}
+
+/** Congela a versão do currículo com só os itens do perfil que ela usa. */
+function congelarCurriculo(curriculo: Curriculo, perfil: Perfil): CurriculoCongelado {
+  const usados = (sel: ItemSelecionado[]) => new Set(sel.map((s) => s.refId));
+  const filtrar = <T extends { id: string }>(lista: T[], sel: ItemSelecionado[]) => {
+    const ids = usados(sel);
+    return lista.filter((x) => ids.has(x.id));
+  };
+  return {
+    curriculoId: curriculo.id,
+    congeladoEm: new Date().toISOString(),
+    perfil: JSON.parse(
+      JSON.stringify({
+        ...perfil,
+        resumo: curriculo.incluirResumo ? perfil.resumo : "",
+        experiencias: filtrar(perfil.experiencias, curriculo.experiencias),
+        formacoes: filtrar(perfil.formacoes, curriculo.formacoes),
+        certificacoes: filtrar(perfil.certificacoes, curriculo.certificacoes),
+        habilidades: filtrar(perfil.habilidades, curriculo.habilidades),
+      }),
+    ),
+    curriculo: JSON.parse(JSON.stringify(curriculo)),
   };
 }
 
@@ -254,7 +379,7 @@ export function sanitizarPerfil(b: unknown): Perfil {
   };
 }
 
-export const COLECOES: Colecao[] = ["candidaturas", "vagas", "curriculos"];
+export const COLECOES: Colecao[] = ["candidaturas", "vagas", "curriculos", "temas"];
 
 export function ehColecao(v: string): v is Colecao {
   return (COLECOES as string[]).includes(v);
@@ -262,12 +387,25 @@ export function ehColecao(v: string): v is Colecao {
 
 export class ErroValidacao extends Error {}
 
-function validar(colecao: Colecao, item: Bruto) {
+function validar(colecao: Colecao, item: Bruto, dados: BancoDeDados, itemId?: string) {
   if (colecao === "candidaturas" && (!item.empresa || !item.cargo))
     throw new ErroValidacao("Informe empresa e cargo.");
-  if (colecao === "vagas" && (!item.titulo || !item.empresa))
-    throw new ErroValidacao("Informe título e empresa.");
+  if (colecao === "vagas") {
+    if (!item.titulo || !item.empresa) throw new ErroValidacao("Informe título e empresa.");
+    const igual = dados.vagas.find(
+      (v) =>
+        v.id !== itemId &&
+        ((item.codigoLinkedin && v.codigoLinkedin === item.codigoLinkedin) || (item.link && v.link === item.link)),
+    );
+    if (igual) throw new ErroValidacao(`Essa vaga já está no histórico: “${igual.titulo}” (${igual.empresa}).`);
+  }
   if (colecao === "curriculos" && !item.nome) throw new ErroValidacao("Dê um nome à versão.");
+  if (colecao === "temas") {
+    if (!item.nome) throw new ErroValidacao("Dê um nome ao tema.");
+    const nome = String(item.nome).toLowerCase();
+    if (dados.temas.some((t) => t.id !== itemId && t.nome.toLowerCase() === nome))
+      throw new ErroValidacao("Já existe um tema com esse nome.");
+  }
 }
 
 function sanitizar(colecao: Colecao, b: Bruto, dados: BancoDeDados) {
@@ -278,13 +416,62 @@ function sanitizar(colecao: Colecao, b: Bruto, dados: BancoDeDados) {
       return sanitizarVaga(b);
     case "curriculos":
       return sanitizarCurriculo(b, dados.perfil);
+    case "temas":
+      return sanitizarTema(b);
   }
 }
 
-export async function criarItem(colecao: Colecao, corpo: Bruto) {
+/**
+ * Regras próprias da candidatura, aplicadas no servidor:
+ * - o histórico nunca vem pronto do navegador; só se acrescenta (novoEvento) ou remove (removerEventoId) um evento;
+ * - mudança de status vira evento automático;
+ * - ao vincular uma versão de currículo, ela é congelada (curriculoEnviado).
+ */
+function aplicarRegrasCandidatura(
+  limpo: Bruto,
+  corpo: Bruto,
+  anterior: Candidatura | null,
+  dados: BancoDeDados,
+  autor: string,
+) {
+  const historico = anterior ? [...sanitizarHistorico(anterior.historico)] : [];
+  const statusNovo = String(limpo.status);
+  if (!anterior) {
+    historico.push(
+      sanitizarEvento(
+        { tipo: "Status", data: limpo.data, para: statusNovo, descricao: "Candidatura registrada." },
+        autor,
+      ),
+    );
+  } else if (anterior.status !== statusNovo) {
+    historico.push(sanitizarEvento({ tipo: "Status", de: anterior.status, para: statusNovo }, autor));
+  }
+  const novo = corpo.novoEvento as Bruto | undefined;
+  if (novo && typeof novo === "object") {
+    const evento = sanitizarEvento({ ...novo, id: "", autor: "", registradoEm: "", de: "", para: "" }, autor);
+    if (evento.tipo === "Status") evento.tipo = "Nota";
+    if (!evento.descricao) throw new ErroValidacao("Descreva o que aconteceu.");
+    historico.push(evento);
+  }
+  const removerId = texto(corpo.removerEventoId, 100);
+  const final = removerId ? historico.filter((e) => e.id !== removerId) : historico;
+  final.sort((a, b) => a.data.localeCompare(b.data) || a.registradoEm.localeCompare(b.registradoEm));
+
+  let curriculoEnviado = anterior?.curriculoEnviado ?? null;
+  const cvId = String(limpo.curriculoId || "");
+  if (!cvId) curriculoEnviado = null;
+  else if (!curriculoEnviado || curriculoEnviado.curriculoId !== cvId) {
+    const cv = dados.curriculos.find((c) => c.id === cvId);
+    curriculoEnviado = cv ? congelarCurriculo(cv, dados.perfil) : null;
+  }
+  return { ...limpo, historico: final, curriculoEnviado };
+}
+
+export async function criarItem(colecao: Colecao, corpo: Bruto, autor = "") {
   return alterarBanco((dados) => {
-    const limpo = sanitizar(colecao, corpo, dados) as Bruto;
-    validar(colecao, limpo);
+    let limpo = sanitizar(colecao, corpo, dados) as Bruto;
+    validar(colecao, limpo, dados);
+    if (colecao === "candidaturas") limpo = aplicarRegrasCandidatura(limpo, corpo, null, dados, autor);
     const agora = new Date().toISOString();
     const novo = { id: randomUUID(), ...limpo, criadoEm: agora, atualizadoEm: agora };
     (dados[colecao] as unknown as Bruto[]).push(novo);
@@ -292,13 +479,15 @@ export async function criarItem(colecao: Colecao, corpo: Bruto) {
   });
 }
 
-export async function atualizarItem(colecao: Colecao, itemId: string, corpo: Bruto) {
+export async function atualizarItem(colecao: Colecao, itemId: string, corpo: Bruto, autor = "") {
   return alterarBanco((dados) => {
     const lista = dados[colecao] as unknown as Bruto[];
     const i = lista.findIndex((x) => x.id === itemId);
     if (i < 0) return null;
-    const limpo = sanitizar(colecao, { ...lista[i], ...corpo }, dados) as Bruto;
-    validar(colecao, limpo);
+    let limpo = sanitizar(colecao, { ...lista[i], ...corpo }, dados) as Bruto;
+    validar(colecao, limpo, dados, itemId);
+    if (colecao === "candidaturas")
+      limpo = aplicarRegrasCandidatura(limpo, corpo, lista[i] as unknown as Candidatura, dados, autor);
     lista[i] = {
       ...limpo,
       id: itemId,
@@ -321,8 +510,12 @@ export async function removerItem(colecao: Colecao, itemId: string) {
         dados.candidaturas.forEach((c) => c.vagaId === itemId && (c.vagaId = ""));
         dados.curriculos.forEach((c) => c.vagaId === itemId && (c.vagaId = ""));
       }
+      // A candidatura guarda a cópia congelada; perder a versão viva não apaga o registro do que foi enviado.
       if (colecao === "curriculos") {
         dados.candidaturas.forEach((c) => c.curriculoId === itemId && (c.curriculoId = ""));
+      }
+      if (colecao === "temas") {
+        dados.vagas.forEach((v) => v.temaId === itemId && (v.temaId = ""));
       }
     }
     return removido;
@@ -340,5 +533,55 @@ export async function salvarPerfil(corpo: unknown) {
       ...sanitizarCurriculo(c as unknown as Bruto, perfil),
     }));
     return perfil;
+  });
+}
+
+/**
+ * "Marcar como enviada": a titular enviou a candidatura pelo site da vaga e registra aqui.
+ * Cria a candidatura ligada à vaga e à versão do currículo (que fica congelada) e marca a vaga como Candidatada.
+ */
+export async function marcarComoEnviada(corpo: Bruto, autor: string) {
+  return alterarBanco((dados) => {
+    const vaga = dados.vagas.find((v) => v.id === texto(corpo.vagaId, 100));
+    if (!vaga) throw new ErroValidacao("Vaga não encontrada.");
+    if (dados.candidaturas.some((c) => c.vagaId === vaga.id))
+      throw new ErroValidacao("Essa vaga já tem candidatura registrada. Atualize por lá.");
+    const curriculoId = texto(corpo.curriculoId, 100);
+    const cv = curriculoId ? dados.curriculos.find((c) => c.id === curriculoId) : undefined;
+    if (curriculoId && !cv) throw new ErroValidacao("Versão de currículo não encontrada.");
+    const dataEnvio = data(corpo.data) || hoje();
+
+    let limpo = sanitizarCandidatura({
+      empresa: vaga.empresa,
+      cargo: vaga.titulo,
+      data: dataEnvio,
+      status: "Candidatada",
+      proximaAcao: corpo.proximaAcao,
+      observacoes: corpo.observacoes,
+      vagaId: vaga.id,
+      curriculoId: cv?.id ?? "",
+    }) as unknown as Bruto;
+    validar("candidaturas", limpo, dados);
+    limpo = aplicarRegrasCandidatura(limpo, {}, null, dados, autor);
+    (limpo.historico as EventoHistorico[]).push(
+      sanitizarEvento(
+        {
+          tipo: "Envio",
+          data: dataEnvio,
+          descricao: cv ? `Enviada com o currículo “${cv.nome}”.` : "Enviada (versão do currículo não informada).",
+        },
+        autor,
+      ),
+    );
+    const agora = new Date().toISOString();
+    const nova = { id: randomUUID(), ...limpo, criadoEm: agora, atualizadoEm: agora } as unknown as Candidatura;
+    dados.candidaturas.push(nova);
+    vaga.situacao = "Candidatada";
+    vaga.atualizadoEm = agora;
+    if (cv && !cv.enviadaEm) {
+      cv.enviadaEm = dataEnvio;
+      cv.atualizadoEm = agora;
+    }
+    return nova;
   });
 }
