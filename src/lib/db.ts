@@ -3,11 +3,15 @@ import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import {
+  ACOES_ATIVIDADE,
+  AcaoAtividade,
+  Atividade,
   BancoDeDados,
   Candidatura,
   Colecao,
   Curriculo,
   CurriculoCongelado,
+  EVENTOS_AUTOMATICOS,
   EventoHistorico,
   ItemSelecionado,
   MODALIDADES,
@@ -48,7 +52,7 @@ export const PASTA = process.env.HUNTER_DATA_DIR || path.join(process.cwd(), "da
 const ARQUIVO = path.join(PASTA, "hunter.json");
 
 function bancoVazio(): BancoDeDados {
-  return { versao: 1, perfil: perfilVazio(), candidaturas: [], vagas: [], curriculos: [], temas: [] };
+  return { versao: 1, perfil: perfilVazio(), candidaturas: [], vagas: [], curriculos: [], temas: [], atividades: [] };
 }
 
 function normalizar(dados: Partial<BancoDeDados> | null | undefined): BancoDeDados {
@@ -73,6 +77,7 @@ function normalizar(dados: Partial<BancoDeDados> | null | undefined): BancoDeDad
     vagas: lista<Bruto>(dados.vagas).map((b) => ({ ...sanitizarVaga(b), ...comDatas(b) })),
     curriculos: lista<Curriculo>(dados.curriculos),
     temas: lista<Bruto>(dados.temas).map((b) => ({ ...sanitizarTema(b), ...comDatas(b) })),
+    atividades: lista<Bruto>(dados.atividades).slice(-LIMITE_ATIVIDADES).map(sanitizarAtividade),
   };
 }
 
@@ -259,6 +264,70 @@ function sanitizarTema(b: Bruto): Omit<Tema, "id" | "criadoEm" | "atualizadoEm">
   };
 }
 
+// ---------- Registro de atividades (rastro para a linha do tempo) ----------
+
+const LIMITE_ATIVIDADES = 5000;
+
+function sanitizarAtividade(b: Bruto): Atividade {
+  return {
+    id: texto(b.id, 100) || randomUUID(),
+    data: data(b.data) || hoje(),
+    registradoEm: texto(b.registradoEm, 40),
+    acao: opcao<AcaoAtividade>(b.acao, ACOES_ATIVIDADE, "Vaga alterada"),
+    descricao: texto(b.descricao, 2000),
+    link: linkSeguro(b.link),
+    itemId: texto(b.itemId, 100),
+    autor: texto(b.autor, 200),
+  };
+}
+
+function registrar(
+  dados: BancoDeDados,
+  acao: AcaoAtividade,
+  descricao: string,
+  extra: { link?: string; itemId?: string; autor?: string } = {},
+) {
+  dados.atividades.push(
+    sanitizarAtividade({
+      acao,
+      descricao,
+      link: extra.link ?? "",
+      itemId: extra.itemId ?? "",
+      autor: extra.autor ?? "",
+      registradoEm: new Date().toISOString(),
+    }),
+  );
+  if (dados.atividades.length > LIMITE_ATIVIDADES) dados.atividades.splice(0, dados.atividades.length - LIMITE_ATIVIDADES);
+}
+
+const rotuloVaga = (v: { titulo: string; empresa: string }) => `${v.titulo || "Sem título"} · ${v.empresa || "empresa não informada"}`;
+
+/** Descreve em texto o que mudou nos dados principais da candidatura (empresa, cargo, data, vaga, currículo). */
+function descreverAlteracoes(anterior: Candidatura, limpo: Bruto, dados: BancoDeDados): string[] {
+  const nomeVaga = (id: string) => {
+    const v = dados.vagas.find((x) => x.id === id);
+    return v ? rotuloVaga(v) : "nenhuma";
+  };
+  const nomeCv = (id: string) => dados.curriculos.find((x) => x.id === id)?.nome ?? (id ? "versão removida" : "nenhum");
+  const mudancas: string[] = [];
+  const campo = (rotulo: string, de: string, para: string) => {
+    if (de !== para) mudancas.push(`${rotulo}: “${de || "vazio"}” → “${para || "vazio"}”`);
+  };
+  campo("Empresa", anterior.empresa, String(limpo.empresa));
+  campo("Cargo", anterior.cargo, String(limpo.cargo));
+  if (anterior.data !== limpo.data)
+    campo("Data da candidatura", formatarDataBR(anterior.data), formatarDataBR(String(limpo.data)));
+  if (anterior.vagaId !== limpo.vagaId) campo("Vaga", nomeVaga(anterior.vagaId), nomeVaga(String(limpo.vagaId)));
+  if (anterior.curriculoId !== limpo.curriculoId)
+    campo("Currículo", nomeCv(anterior.curriculoId), nomeCv(String(limpo.curriculoId)));
+  return mudancas;
+}
+
+function formatarDataBR(iso: string) {
+  const [a, m, d] = iso.split("-");
+  return d ? `${d}/${m}/${a}` : iso;
+}
+
 function sanitizarEvento(b: Bruto, autor: string): EventoHistorico {
   return {
     id: texto(b.id, 100) || randomUUID(),
@@ -443,18 +512,34 @@ function aplicarRegrasCandidatura(
         autor,
       ),
     );
-  } else if (anterior.status !== statusNovo) {
-    historico.push(sanitizarEvento({ tipo: "Status", de: anterior.status, para: statusNovo }, autor));
+  } else {
+    if (anterior.status !== statusNovo)
+      historico.push(sanitizarEvento({ tipo: "Status", de: anterior.status, para: statusNovo }, autor));
+    const mudancas = descreverAlteracoes(anterior, limpo, dados);
+    if (mudancas.length)
+      historico.push(sanitizarEvento({ tipo: "Alteração", descricao: mudancas.join("\n") }, autor));
   }
   const novo = corpo.novoEvento as Bruto | undefined;
   if (novo && typeof novo === "object") {
     const evento = sanitizarEvento({ ...novo, id: "", autor: "", registradoEm: "", de: "", para: "" }, autor);
-    if (evento.tipo === "Status") evento.tipo = "Nota";
+    if (EVENTOS_AUTOMATICOS.includes(evento.tipo)) evento.tipo = "Nota";
     if (!evento.descricao) throw new ErroValidacao("Descreva o que aconteceu.");
     historico.push(evento);
   }
+  // Só registros feitos à mão podem sair; status, envio e alterações ficam para sempre.
+  // A remoção em si fica no registro de atividades, com o texto do que foi removido.
   const removerId = texto(corpo.removerEventoId, 100);
-  const final = removerId ? historico.filter((e) => e.id !== removerId) : historico;
+  const alvo = removerId ? historico.find((e) => e.id === removerId) : undefined;
+  if (alvo && EVENTOS_AUTOMATICOS.includes(alvo.tipo))
+    throw new ErroValidacao("Esse registro é automático e não pode ser removido.");
+  if (alvo && anterior)
+    registrar(
+      dados,
+      "Registro removido",
+      `${alvo.tipo} de ${formatarDataBR(alvo.data)} em “${anterior.cargo} · ${anterior.empresa}”: ${alvo.descricao}`,
+      { itemId: anterior.id, autor },
+    );
+  const final = alvo ? historico.filter((e) => e.id !== alvo.id) : historico;
   final.sort((a, b) => a.data.localeCompare(b.data) || a.registradoEm.localeCompare(b.registradoEm));
 
   let curriculoEnviado = anterior?.curriculoEnviado ?? null;
@@ -475,6 +560,12 @@ export async function criarItem(colecao: Colecao, corpo: Bruto, autor = "") {
     const agora = new Date().toISOString();
     const novo = { id: randomUUID(), ...limpo, criadoEm: agora, atualizadoEm: agora };
     (dados[colecao] as unknown as Bruto[]).push(novo);
+    if (colecao === "vagas") {
+      const v = novo as unknown as Vaga;
+      registrar(dados, "Vaga salva", `${rotuloVaga(v)} (situação: ${v.situacao})`, { link: v.link, itemId: v.id, autor });
+    }
+    if (colecao === "curriculos")
+      registrar(dados, "Currículo criado", String(limpo.nome), { itemId: novo.id, autor });
     return novo;
   });
 }
@@ -488,6 +579,20 @@ export async function atualizarItem(colecao: Colecao, itemId: string, corpo: Bru
     validar(colecao, limpo, dados, itemId);
     if (colecao === "candidaturas")
       limpo = aplicarRegrasCandidatura(limpo, corpo, lista[i] as unknown as Candidatura, dados, autor);
+    if (colecao === "vagas") {
+      const antes = lista[i] as unknown as Vaga;
+      const depois = limpo as unknown as Vaga;
+      const m: string[] = [];
+      if (antes.situacao !== depois.situacao) m.push(`situação: ${antes.situacao} → ${depois.situacao}`);
+      if (antes.titulo !== depois.titulo || antes.empresa !== depois.empresa) m.push(`antes: ${rotuloVaga(antes)}`);
+      if (antes.link !== depois.link) m.push("link alterado");
+      if (m.length)
+        registrar(dados, "Vaga alterada", `${rotuloVaga(depois)} (${m.join("; ")})`, {
+          link: depois.link,
+          itemId: itemId,
+          autor,
+        });
+    }
     lista[i] = {
       ...limpo,
       id: itemId,
@@ -498,9 +603,30 @@ export async function atualizarItem(colecao: Colecao, itemId: string, corpo: Bru
   });
 }
 
-export async function removerItem(colecao: Colecao, itemId: string) {
+export async function removerItem(colecao: Colecao, itemId: string, autor = "") {
   return alterarBanco((dados) => {
     const lista = dados[colecao] as unknown as Bruto[];
+    const item = lista.find((x) => x.id === itemId);
+    if (item && colecao === "vagas") {
+      const v = item as unknown as Vaga;
+      registrar(dados, "Vaga removida", rotuloVaga(v), { link: v.link, itemId, autor });
+    }
+    if (item && colecao === "candidaturas") {
+      // Guarda o resumo e o histórico em texto: a candidatura some, o rastro fica.
+      const c = item as unknown as Candidatura;
+      const vaga = dados.vagas.find((v) => v.id === c.vagaId);
+      const passos = (c.historico ?? [])
+        .map((e) => `${formatarDataBR(e.data)} ${e.tipo}${e.para ? ` (${e.para})` : ""}${e.descricao ? `: ${e.descricao}` : ""}`)
+        .join("\n");
+      registrar(
+        dados,
+        "Candidatura removida",
+        `${c.cargo} · ${c.empresa}, candidatura de ${formatarDataBR(c.data)}, último status ${c.status}.${passos ? `\nHistórico:\n${passos}` : ""}`,
+        { link: vaga?.link ?? "", itemId, autor },
+      );
+    }
+    if (item && colecao === "curriculos")
+      registrar(dados, "Currículo removido", String((item as unknown as Curriculo).nome), { itemId, autor });
     const antes = lista.length;
     (dados as unknown as Record<Colecao, Bruto[]>)[colecao] = lista.filter((x) => x.id !== itemId);
     const removido = antes !== (dados[colecao] as unknown[]).length;

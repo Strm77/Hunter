@@ -24,7 +24,7 @@ export async function PUT(req: Request, { params }: Ctx) {
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { collection, id } = await params;
   if (!ehColecao(collection)) return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
-  const ok = await removerItem(collection, id);
+  const ok = await removerItem(collection, id, await autorAtual());
   if (!ok) return NextResponse.json({ erro: "Não encontrado" }, { status: 404 });
   return new NextResponse(null, { status: 204 });
 }
