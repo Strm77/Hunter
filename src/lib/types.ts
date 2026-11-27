@@ -11,8 +11,11 @@ export const STATUS_CANDIDATURA = [
 
 export type StatusCandidatura = (typeof STATUS_CANDIDATURA)[number];
 
-export const TIPOS_EVENTO = ["Status", "Envio", "Contato", "Entrevista", "Nota"] as const;
+export const TIPOS_EVENTO = ["Status", "Envio", "Contato", "Entrevista", "Nota", "Alteração"] as const;
 export type TipoEvento = (typeof TIPOS_EVENTO)[number];
+
+/** Eventos que o servidor gera sozinho; não podem ser registrados nem removidos à mão. */
+export const EVENTOS_AUTOMATICOS: TipoEvento[] = ["Status", "Envio", "Alteração"];
 
 /** Um passo do andamento da candidatura. Mudanças de status geram eventos automaticamente. */
 export interface EventoHistorico {
@@ -176,6 +179,33 @@ export interface Curriculo {
   atualizadoEm: string;
 }
 
+export const ACOES_ATIVIDADE = [
+  "Vaga salva",
+  "Vaga alterada",
+  "Vaga removida",
+  "Candidatura removida",
+  "Registro removido",
+  "Currículo criado",
+  "Currículo removido",
+] as const;
+export type AcaoAtividade = (typeof ACOES_ATIVIDADE)[number];
+
+/**
+ * Registro geral do que foi feito no Hunter, para a linha do tempo.
+ * Só o servidor escreve aqui; guarda um resumo do item, para que o rastro continue
+ * mesmo depois que o item for removido.
+ */
+export interface Atividade {
+  id: string;
+  data: string; // AAAA-MM-DD
+  registradoEm: string; // data e hora ISO
+  acao: AcaoAtividade;
+  descricao: string;
+  link: string; // link da vaga, quando houver
+  itemId: string;
+  autor: string;
+}
+
 export interface BancoDeDados {
   versao: 1;
   perfil: Perfil;
@@ -183,6 +213,7 @@ export interface BancoDeDados {
   vagas: Vaga[];
   curriculos: Curriculo[];
   temas: Tema[];
+  atividades: Atividade[];
 }
 
 export type Colecao = "candidaturas" | "vagas" | "curriculos" | "temas";

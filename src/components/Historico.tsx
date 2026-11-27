@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { api, formatarData, hojeISO } from "@/lib/api";
-import { Candidatura, TIPOS_EVENTO, TipoEvento } from "@/lib/types";
+import { Candidatura, EVENTOS_AUTOMATICOS, TIPOS_EVENTO, TipoEvento } from "@/lib/types";
 import { Botao, Campo, Erro, classeCampo } from "./ui";
 
-const TIPOS_MANUAIS = TIPOS_EVENTO.filter((t) => t !== "Status");
+const TIPOS_MANUAIS = TIPOS_EVENTO.filter((t) => !EVENTOS_AUTOMATICOS.includes(t));
 
 const ICONE: Record<TipoEvento, string> = {
   Status: "●",
@@ -13,6 +13,7 @@ const ICONE: Record<TipoEvento, string> = {
   Contato: "✉",
   Entrevista: "☎",
   Nota: "✎",
+  Alteração: "↺",
 };
 
 /** Linha do tempo da candidatura, com formulário para registrar um novo passo. */
@@ -74,7 +75,7 @@ export default function Historico({
               {ev.descricao && <p className="whitespace-pre-line text-sm text-tinta/80">{ev.descricao}</p>}
               <div className="flex items-center justify-between gap-2 text-xs text-tinta/40">
                 <span>{ev.autor ? `por ${ev.autor}` : ""}</span>
-                {ev.tipo !== "Status" && ev.tipo !== "Envio" && (
+                {!EVENTOS_AUTOMATICOS.includes(ev.tipo) && (
                   <button
                     type="button"
                     className="hover:text-red-700 hover:underline"
